@@ -1,42 +1,49 @@
 from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 import telegram
 import openai
 import os
 
-# Carica token
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+# Caricamento variabili d'ambiente
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-# Setup
-bot = telegram.Bot(token=TELEGRAM_BOT_TOKEN)
-openai.api_key = OPENAI_API_KEY
+if not TELEGRAM_TOKEN or not OPENAI_API_KEY:
+    raise ValueError("TELEGRAM_BOT_TOKEN o OPENAI_API_KEY mancante")
 
+bot = telegram.Bot(token=TELEGRAM_TOKEN)
+openai.api_key = OPENAI_API_KEY
 app = FastAPI()
 
-def get_gpt_reply(prompt: str) -> str:
-    try:
-        response = openai.ChatCompletion.create(
-            model="gpt-4",
-            messages=[
-                {"role": "system", "content": "Rispondi in modo amichevole, sintetico e chiaro."},
-                {"role": "user", "content": prompt}
-            ],
-            max_tokens=200,
-            temperature=0.7,
-        )
-        return response.choices[0].message["content"].strip()
-    except Exception as e:
-        return f"Errore durante la risposta AI: {e}"
-
 @app.post("/telegram")
-async def receive_webhook(request: Request):
-    data = await request.json()
-    update = telegram.Update.de_json(data, bot)
+async def webhook(request: Request):
+    try:
+        data = await request.json()
+        update = telegram.Update.de_json(data, bot)
 
-    if update.message:
-        chat_id = update.message.chat.id
-        user_text = update.message.text
-        reply = get_gpt_reply(user_text)
-        bot.send_message(chat_id=chat_id, text=reply)
+        if update.message and update.message.text:
+            chat_id = update.message.chat.id
+            user_text = update.message.text
 
-    return {"ok": True}
+            # Log del messaggio ricevuto
+            print(f"[Telegram] Messaggio ricevuto: {user_text}")
+
+            # Chiamata a OpenAI
+            response = openai.ChatCompletion.create(
+                model="gpt-4",
+                messages=[
+                    {"role": "system", "content": "Rispondi come un assistente amichevole e utile."},
+                    {"role": "user", "content": user_text}
+                ]
+            )
+            reply = response.choices[0].message["content"].strip()
+
+            # Risposta su Telegram
+            bot.send_message(chat_id=chat_id, text=reply)
+
+        # Risposta necessaria per Telegram
+        return JSONResponse(content={"status": "ok"}, status_code=200)
+
+    except Exception as e:
+        print(f"[Errore Webhook] {str(e)}")
+        return JSONResponse(content={"status": "error", "detail": str(e)}, status_code=200)
