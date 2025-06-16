@@ -70,7 +70,7 @@ OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
 
 # Funzione per inviare messaggio Telegram
 def send_telegram_message(chat_id: int, text: str):
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    url = f"https://api.telegram.org/bot7844644488:AAEzVEPRC934ydktv6X674O4sLIXehwAEn4/sendMessage"
     payload = {
         "chat_id": chat_id,
         "text": text,
