@@ -28,14 +28,20 @@ async def webhook(request: Request):
 
             print(f"[Telegram] Messaggio ricevuto: {user_text}")
 
-            # Nuova chiamata OpenAI
+            # Chiamata OpenAI
             response = client.chat.completions.create(
-            model="gpt-4",
-             messages=[
+                model="gpt-4",
+                messages=[
                     {"role": "system", "content": "Rispondi come un assistente amichevole e utile."},
                     {"role": "user", "content": user_text}
                 ]
             )
             reply = response.choices[0].message.content.strip()
             bot.send_message(chat_id=chat_id, text=reply)
+
+        return JSONResponse(content={"status": "ok"}, status_code=200)
+
+    except Exception as e:
+        print(f"[Errore Webhook] {str(e)}")
+        return JSONResponse(content={"status": "error", "detail": str(e)}, status_code=200)
 
