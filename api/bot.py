@@ -30,10 +30,12 @@ async def webhook(request: Request):
 
             # Nuova chiamata OpenAI
             response = client.chat.completions.create(
-                model="gpt-4",
-                messages=[
+            model="gpt-4",
+             messages=[
                     {"role": "system", "content": "Rispondi come un assistente amichevole e utile."},
                     {"role": "user", "content": user_text}
                 ]
             )
-            reply = response.choices[0]()
+            reply = response.choices[0].message.content.strip()
+            bot.send_message(chat_id=chat_id, text=reply)
+
