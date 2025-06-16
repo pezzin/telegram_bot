@@ -8,7 +8,7 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 # Setup
-bot = telegram.Bot(token=TELEGRAM_TOKEN)
+bot = telegram.Bot(token=TELEGRAM_BOT_TOKEN)
 openai.api_key = OPENAI_API_KEY
 
 app = FastAPI()
