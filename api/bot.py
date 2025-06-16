@@ -29,14 +29,17 @@ async def webhook(request: Request):
             print(f"[Telegram] Messaggio ricevuto: {user_text}")
 
             # Chiamata a OpenAI
-            response = openai.ChatCompletion.create(
-                model="gpt-4",
-                messages=[
-                    {"role": "system", "content": "Rispondi come un assistente amichevole e utile."},
-                    {"role": "user", "content": user_text}
-                ]
-            )
-            reply = response.choices[0].message["content"].strip()
+client = openai.OpenAI(api_key=OPENAI_API_KEY)
+
+response = client.chat.completions.create(
+    model="gpt-4",
+    messages=[
+        {"role": "system", "content": "Rispondi come un assistente amichevole e utile."},
+        {"role": "user", "content": user_text}
+    ]
+)
+reply = response.choices[0].message.content.strip()
+
 
             # Risposta su Telegram
             bot.send_message(chat_id=chat_id, text=reply)
