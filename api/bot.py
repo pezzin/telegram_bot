@@ -16,59 +16,53 @@ CSV_DISPONIBILITA_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTfKTKU
 CSV_SERVIZI_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTfKTKUxwGGeVs6TXS9847PYesuANrJV7sg7Gxg3RTm45sDBUXpYx7YlOIM3i3d2B8HQluwU2mW-0A0/pub?gid=894447983&single=true&output=csv"
 
 if not TELEGRAM_TOKEN or not GROQ_API_KEY:
-    raise ValueError("Variabili richieste mancanti: TELEGRAM_BOT_TOKEN, GROQ_API_KEY")
+    raise ValueError("Variabili richieste mancanti.")
 
 bot = telegram.Bot(token=TELEGRAM_TOKEN)
 app = FastAPI()
 groq_client = Groq(api_key=GROQ_API_KEY)
 
-# === FUNZIONI UTILI ===
+# === CARICAMENTO DATI ===
 async def carica_risposte():
     risposte = {}
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(CSV_RISPOSTE_URL)
-            response.raise_for_status()
-            reader = csv.DictReader(response.text.splitlines())
-            for row in reader:
-                risposte[row["Intento"].strip().lower()] = row["Risposta"].strip()
-    except Exception as e:
-        print(f"[Errore CSV Risposte] {e}")
+    async with httpx.AsyncClient() as client:
+        r = await client.get(CSV_RISPOSTE_URL)
+        reader = csv.DictReader(r.text.splitlines())
+        for row in reader:
+            risposte[row["Intento"].strip().lower()] = row["Risposta"].strip()
     return risposte
 
 async def carica_disponibilita():
-    struttura = {}
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(CSV_DISPONIBILITA_URL)
-            response.raise_for_status()
-            reader = csv.DictReader(response.text.splitlines())
-            for row in reader:
-                hotel = row["Hotel"].strip().lower()
-                tipo = row["Tipo"].strip().lower()
-                stato = row["Stato"].strip()
-                struttura.setdefault(hotel, {})[tipo] = stato
-    except Exception as e:
-        print(f"[Errore CSV Disponibilità] {e}")
-    return struttura
+    disp = {}
+    async with httpx.AsyncClient() as client:
+        r = await client.get(CSV_DISPONIBILITA_URL)
+        reader = csv.DictReader(r.text.splitlines())
+        for row in reader:
+            hotel = row["Hotel"].strip().lower()
+            tipo = row["Tipo"].strip().lower()
+            stato = row["Stato"].strip()
+            disp.setdefault(hotel, {})[tipo] = stato
+    return disp
 
 async def carica_servizi():
     servizi = []
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(CSV_SERVIZI_URL)
-            response.raise_for_status()
-            reader = csv.DictReader(response.text.splitlines())
-            for row in reader:
-                servizi.append(row["Servizio"].strip())
-    except Exception as e:
-        print(f"[Errore CSV Servizi] {e}")
+    async with httpx.AsyncClient() as client:
+        r = await client.get(CSV_SERVIZI_URL)
+        reader = csv.DictReader(r.text.splitlines())
+        for row in reader:
+            servizi.append(row["Servizio"].strip())
     return servizi
 
-def trova_risposta_automatica(testo_utente, knowledge_base):
-    intenti = list(knowledge_base.keys())
-    match = get_close_matches(testo_utente.lower(), intenti, n=1, cutoff=0.5)
-    return knowledge_base.get(match[0]) if match else None
+def trova_match(messaggio: str, intenti: dict):
+    match = get_close_matches(messaggio.lower(), list(intenti.keys()), n=1, cutoff=0.5)
+    return intenti.get(match[0]) if match else None
+
+def cerca_disponibilita(hotel: str, tipo: str, dati: dict):
+    h = hotel.lower()
+    t = tipo.lower()
+    if h in dati and t in dati[h]:
+        return f"{tipo.title()} a {hotel.title()}: {dati[h][t]}"
+    return None
 
 # === WEBHOOK ===
 @app.post("/telegram")
@@ -79,49 +73,55 @@ async def webhook(request: Request):
 
         if update.message and update.message.text:
             chat_id = update.message.chat.id
-            user_text = update.message.text.strip()
-            print(f"[Telegram] Messaggio ricevuto: {user_text}")
+            user_text = update.message.text.strip().lower()
 
-            # Caricamento dati da Sheet
+            # Carica dati
             risposte = await carica_risposte()
             disponibilita = await carica_disponibilita()
             servizi = await carica_servizi()
 
-            # Match intenti (Risposte statiche)
-            risposta = trova_risposta_automatica(user_text, risposte)
+            # 1️⃣ Intelligenza: domanda su disponibilità?
+            for hotel in disponibilita:
+                for tipo in disponibilita[hotel]:
+                    if hotel in user_text and tipo in user_text:
+                        risposta = cerca_disponibilita(hotel, tipo, disponibilita)
+                        if risposta:
+                            bot.send_message(chat_id=chat_id, text=risposta)
+                            return JSONResponse(content={"status": "ok"})
+
+            # 2️⃣ Cerca risposta diretta da sheet Risposte
+            risposta = trova_match(user_text, risposte)
             if risposta:
                 bot.send_message(chat_id=chat_id, text=risposta)
-                return JSONResponse(content={"status": "ok"}, status_code=200)
+                return JSONResponse(content={"status": "ok"})
 
-            # Prompt dinamico
+            # 3️⃣ Prompt Groq con dati strutturati
             def formatta_disp(d):
-                blocchi = []
-                for hotel, camere in d.items():
-                    righe = [f"   • Camere {tipo}: {stato}" for tipo, stato in camere.items()]
-                    blocchi.append(f"- {hotel.title()}:\n" + "\n".join(righe))
-                return "\n".join(blocchi)
+                return "\n".join(
+                    f"- {h.title()} | " + ", ".join(f"{k}: {v}" for k, v in d[h].items())
+                    for h in d
+                )
 
-            system_prompt = {
+            prompt = {
                 "role": "system",
                 "content": (
-                    "Agisci come un assistente AI per Devira Hotels, un gruppo di hotel a Rimini, Riolo, Bologna e Firenze.\n\n"
-                    f"📅 **Disponibilità attuale:**\n{formatta_disp(disponibilita)}\n\n"
-                    f"🛎️ **Servizi attivi oggi:**\n{chr(10).join(f'- {s}' for s in servizi)}\n\n"
-                    "Se il cliente chiede qualcosa fuori da questi dati, rispondi in modo cortese, proponi alternative, "
-                    "oppure offri la possibilità di parlare con un operatore umano."
+                    "Rispondi come assistente Devira Hotels. "
+                    "Se non sai qualcosa, dì 'non so'. "
+                    "Non inventare. Ecco i dati veri:\n\n"
+                    f"📅 DISPONIBILITÀ:\n{formatta_disp(disponibilita)}\n\n"
+                    f"🛎️ SERVIZI ATTIVI:\n" + "\n".join(f"- {s}" for s in servizi)
                 )
             }
 
-            # Chiamata Groq
-            response = groq_client.chat.completions.create(
+            completion = groq_client.chat.completions.create(
                 model="llama3-70b-8192",
-                messages=[system_prompt, {"role": "user", "content": user_text}]
+                messages=[prompt, {"role": "user", "content": user_text}]
             )
-            reply = response.choices[0].message.content.strip()
+            reply = completion.choices[0].message.content.strip()
             bot.send_message(chat_id=chat_id, text=reply)
 
-        return JSONResponse(content={"status": "ok"}, status_code=200)
+        return JSONResponse(content={"status": "ok"})
 
     except Exception as e:
         print(f"[Errore Webhook] {e}")
-        return JSONResponse(content={"status": "error", "detail": str(e)}, status_code=200)
+        return JSONResponse(content={"status": "error", "detail": str(e)})
