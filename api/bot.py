@@ -35,12 +35,11 @@ def costruisci_prompt():
 
     blocco_disp = ""
     for _, row in disponibilita.iterrows():
-        blocco_disp += f"- {row['Hotel']}:
-"
-        blocco_disp += f"   • Camere famiglia: {row['Famiglia']}
-"
-        blocco_disp += f"   • Camere coppia: {row['Coppia']}
-"
+        blocco_disp += (
+            f"- {row['Hotel']}:\n"
+            f"   • Camere famiglia: {row['Famiglia']}\n"
+            f"   • Camere coppia: {row['Coppia']}\n"
+        )
 
     blocco_servizi = ""
     for s in servizi["Servizio"]:
