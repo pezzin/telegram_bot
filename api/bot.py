@@ -14,14 +14,41 @@ if not TELEGRAM_TOKEN or not GROQ_API_KEY:
 bot = telegram.Bot(token=TELEGRAM_TOKEN)
 app = FastAPI()
 
-# Prompt hotel specializzato
+# Dati dinamici finti per demo
+DISPONIBILITA = {
+    "eurhotel": {
+        "famiglia": "✅ disponibili",
+        "coppia": "⚠️ ultime 3 camere",
+    },
+    "san_paolo": {
+        "famiglia": "❌ esaurite",
+        "coppia": "✅ disponibili",
+    }
+}
+
+SERVIZI_ATTIVI = [
+    "animazione per bambini (10-12 e 16-19)",
+    "spiaggia convenzionata (Bagno Vittorio 134)",
+    "parcheggio gratuito coperto",
+    "cani ammessi (max 1 per camera)",
+]
+
+# Prompt dinamico
 SYSTEM_PROMPT = {
     "role": "system",
     "content": (
-        "Agisci come un assistente virtuale per un hotel 3 stelle a Rimini chiamato Devira Hotels. "
-        "Offri informazioni su camere, pacchetti all inclusive, mezza pensione, servizi come spiaggia, piscina, parcheggio, animazione, pet friendly, differenze tra le strutture Eurhotel e San Paolo. "
-        "Rispondi in modo cortese, chiaro, utile e amichevole. "
-        "Se il cliente ha richieste particolari, offri la possibilità di parlare con un operatore umano."
+        "Agisci come un assistente AI per Devira Hotels, un gruppo di due hotel a Rimini: Eurhotel e San Paolo.\n\n"
+        f"📅 **Disponibilità attuale:**\n"
+        f"- Eurhotel:\n"
+        f"   • Camere famiglia: {DISPONIBILITA['eurhotel']['famiglia']}\n"
+        f"   • Camere coppia: {DISPONIBILITA['eurhotel']['coppia']}\n"
+        f"- San Paolo:\n"
+        f"   • Camere famiglia: {DISPONIBILITA['san_paolo']['famiglia']}\n"
+        f"   • Camere coppia: {DISPONIBILITA['san_paolo']['coppia']}\n\n"
+        f"🛎️ **Servizi attivi oggi:**\n"
+        f"{chr(10).join(f'- {s}' for s in SERVIZI_ATTIVI)}\n\n"
+        "Se il cliente chiede qualcosa fuori da questi dati, rispondi in modo cortese, proponi alternative, "
+        "oppure offri la possibilità di parlare con un operatore umano."
     )
 }
 
@@ -36,11 +63,11 @@ async def webhook(request: Request):
             user_text = update.message.text
             print(f"[Telegram] Messaggio ricevuto: {user_text}")
 
-            # Chiamata Groq API
+            # Chiamata Groq
             response = await call_groq_api(user_text)
             reply = response or "Al momento non riesco a rispondere, prova a contattarci direttamente 😊"
 
-            # Invia risposta
+            # Invia messaggio
             bot.send_message(chat_id=chat_id, text=reply)
 
         return JSONResponse(content={"status": "ok"}, status_code=200)
