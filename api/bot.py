@@ -16,7 +16,7 @@ if not TELEGRAM_TOKEN or not GROQ_API_KEY:
     raise ValueError("TELEGRAM_BOT_TOKEN o GROQ_API_KEY mancante")
 
 # Telegram Bot asincrono con HTTPXRequest
-request_con = HTTPXRequest(pool_maxsize=100, connect_timeout=10, read_timeout=10)
+request_con = HTTPXRequest()
 bot = Bot(token=TELEGRAM_TOKEN, request=request_con)
 
 # Groq client
