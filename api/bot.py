@@ -46,19 +46,15 @@ async def webhook(request: Request):
             chat_id = update.message.chat.id
             user_text = update.message.text.strip().lower()
 
-            print(f"[Telegram] Messaggio ricevuto: {user_text}")
-
             risposte = leggi_csv_da_url(URL_RISPOSTE)
             disponibilita = leggi_csv_da_url(URL_DISPONIBILITA)
             servizi = leggi_csv_da_url(URL_SERVIZI)
 
-            # Risposta predefinita se match
             risposta_match = next(
                 (r["Risposta"] for r in risposte if r["Domanda"].strip().lower() in user_text),
                 None
             )
 
-            # Blocchi da CSV
             blocco_disp = ""
             for row in disponibilita:
                 blocco_disp += f"- {row['Hotel']}: Famiglia: {row['Famiglia']}, Coppia: {row['Coppia']}\n"
@@ -71,11 +67,11 @@ async def webhook(request: Request):
                 "role": "system",
                 "content": (
                     "Sei un assistente AI per Devira Hotels.\n"
-                    "📅 **Disponibilità attuale:**\n"
+                    "📅 Disponibilità attuale:\n"
                     f"{blocco_disp}\n"
-                    "🛎️ **Servizi attivi oggi:**\n"
+                    "🛎️ Servizi attivi oggi:\n"
                     f"{blocco_servizi}\n"
-                    "Se non sai rispondere, rispondi cortesemente e proponi di parlare con un operatore umano."
+                    "Se non sai rispondere, proponi cortesemente di parlare con un operatore umano."
                 )
             }
 
