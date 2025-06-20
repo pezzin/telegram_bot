@@ -6,7 +6,6 @@ import pandas as pd
 import io
 from groq import Groq
 from telegram import Bot
-from telegram.request import HTTPXRequest
 
 # --- Config ---
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -15,13 +14,8 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 if not TELEGRAM_TOKEN or not GROQ_API_KEY:
     raise ValueError("TELEGRAM_BOT_TOKEN o GROQ_API_KEY mancante")
 
-# Telegram Bot asincrono con HTTPXRequest
-request_con = HTTPXRequest()
-bot = Bot(token=TELEGRAM_TOKEN, request=request_con)
-
-# Groq client
+bot = Bot(token=TELEGRAM_TOKEN)
 client = Groq(api_key=GROQ_API_KEY)
-
 app = FastAPI()
 
 # --- Link ai CSV ---
@@ -89,7 +83,8 @@ async def webhook(request: Request):
             )
             reply = response.choices[0].message.content.strip()
 
-        await bot.send_message(chat_id=chat_id, text=reply)
+        # ⚠️ VERSIONE SINCRONA
+        bot.send_message(chat_id=chat_id, text=reply)
 
         return JSONResponse(content={"status": "ok"})
 
