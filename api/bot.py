@@ -26,7 +26,7 @@ URL_SERVIZI = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTfKTKUxwGGeVs6TX
 # --- Helpers ---
 def leggi_csv_da_url(url):
     try:
-        response = httpx.get(url)
+        response = httpx.get(url, follow_redirects=True)
         response.raise_for_status()
         decoded = response.content.decode("utf-8")
         reader = csv.DictReader(io.StringIO(decoded))
