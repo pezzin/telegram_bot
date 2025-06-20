@@ -3,7 +3,7 @@ from fastapi.responses import JSONResponse
 import telegram
 import os
 import httpx
-import csv
+import pandas as pd
 import io
 from groq import Groq
 
@@ -24,16 +24,14 @@ URL_DISPONIBILITA = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTfKTKUxwGG
 URL_SERVIZI = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTfKTKUxwGGeVs6TXS9847PYesuANrJV7sg7Gxg3RTm45sDBUXpYx7YlOIM3i3d2B8HQluwU2mW-0A0/pub?gid=894447983&single=true&output=csv"
 
 # --- Helpers ---
-def leggi_csv_da_url(url):
+def carica_csv_pandas(url):
     try:
         response = httpx.get(url, follow_redirects=True)
         response.raise_for_status()
-        decoded = response.content.decode("utf-8")
-        reader = csv.DictReader(io.StringIO(decoded))
-        return list(reader)
+        return pd.read_csv(io.StringIO(response.text))
     except Exception as e:
-        print(f"[Errore lettura CSV] {e}")
-        return []
+        print(f"[Errore CSV] {e}")
+        return pd.DataFrame()
 
 # --- Webhook ---
 @app.post("/telegram")
@@ -46,23 +44,31 @@ async def webhook(request: Request):
             chat_id = update.message.chat.id
             user_text = update.message.text.strip().lower()
 
-            risposte = leggi_csv_da_url(URL_RISPOSTE)
-            disponibilita = leggi_csv_da_url(URL_DISPONIBILITA)
-            servizi = leggi_csv_da_url(URL_SERVIZI)
+            df_risposte = carica_csv_pandas(URL_RISPOSTE)
+            df_disp = carica_csv_pandas(URL_DISPONIBILITA)
+            df_servizi = carica_csv_pandas(URL_SERVIZI)
 
-            risposta_match = next(
-                (r["Risposta"] for r in risposte if r["Domanda"].strip().lower() in user_text),
-                None
-            )
+            # Ricerca intent matching sulle risposte predefinite
+            risposta_match = None
+            if not df_risposte.empty and "Domanda" in df_risposte.columns:
+                for _, row in df_risposte.iterrows():
+                    if row["Domanda"].strip().lower() in user_text:
+                        risposta_match = row["Risposta"]
+                        break
 
+            # Costruzione blocco disponibilità
             blocco_disp = ""
-            for row in disponibilita:
-                blocco_disp += f"- {row['Hotel']}: Famiglia: {row['Famiglia']}, Coppia: {row['Coppia']}\n"
+            if not df_disp.empty and {"Hotel", "Famiglia", "Coppia"}.issubset(df_disp.columns):
+                for _, row in df_disp.iterrows():
+                    blocco_disp += f"- {row['Hotel']}: Famiglia: {row['Famiglia']}, Coppia: {row['Coppia']}\n"
 
+            # Costruzione blocco servizi
             blocco_servizi = ""
-            for s in servizi:
-                blocco_servizi += f"- {s['Servizio']}\n"
+            if not df_servizi.empty and "Servizio" in df_servizi.columns:
+                for s in df_servizi["Servizio"]:
+                    blocco_servizi += f"- {s}\n"
 
+            # Prompt per Groq
             system_prompt = {
                 "role": "system",
                 "content": (
@@ -71,25 +77,23 @@ async def webhook(request: Request):
                     f"{blocco_disp}\n"
                     "🛎️ Servizi attivi oggi:\n"
                     f"{blocco_servizi}\n"
-                    "Se non sai rispondere, proponi cortesemente di parlare con un operatore umano."
+                    "Se non sai rispondere, invita cortesemente a contattare un operatore umano."
                 )
             }
-
-            messages = [system_prompt, {"role": "user", "content": user_text}]
 
             if risposta_match:
                 reply = risposta_match
             else:
                 response = client.chat.completions.create(
                     model="llama3-70b-8192",
-                    messages=messages
+                    messages=[system_prompt, {"role": "user", "content": user_text}]
                 )
                 reply = response.choices[0].message.content.strip()
 
             bot.send_message(chat_id=chat_id, text=reply)
 
-        return JSONResponse(content={"status": "ok"}, status_code=200)
+        return JSONResponse(content={"status": "ok"})
 
     except Exception as e:
         print(f"[Errore Webhook] {str(e)}")
-        return JSONResponse(content={"status": "error", "detail": str(e)}, status_code=200)
+        return JSONResponse(content={"status": "error", "detail": str(e)})
