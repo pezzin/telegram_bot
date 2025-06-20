@@ -6,7 +6,7 @@ import pandas as pd
 import io
 from groq import Groq
 from telegram import Bot
-from telegram.request import AiohttpRequest
+from telegram.request import HTTPXRequest
 
 # --- Config ---
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -15,8 +15,8 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 if not TELEGRAM_TOKEN or not GROQ_API_KEY:
     raise ValueError("TELEGRAM_BOT_TOKEN o GROQ_API_KEY mancante")
 
-# Telegram Bot asincrono con pool aumentato
-request_con = AiohttpRequest(connect_timeout=10, read_timeout=10, pool_size=100)
+# Telegram Bot asincrono con HTTPXRequest
+request_con = HTTPXRequest(pool_maxsize=100, connect_timeout=10, read_timeout=10)
 bot = Bot(token=TELEGRAM_TOKEN, request=request_con)
 
 # Groq client
@@ -51,7 +51,6 @@ async def webhook(request: Request):
         df_disp = carica_csv_pandas(URL_DISPONIBILITA)
         df_servizi = carica_csv_pandas(URL_SERVIZI)
 
-        # Ricerca intent matching sulle risposte predefinite
         risposta_match = None
         if not df_risposte.empty and "Domanda" in df_risposte.columns:
             for _, row in df_risposte.iterrows():
@@ -59,13 +58,11 @@ async def webhook(request: Request):
                     risposta_match = row["Risposta"]
                     break
 
-        # Costruzione blocco disponibilità
         blocco_disp = ""
         if not df_disp.empty and {"Hotel", "Famiglia", "Coppia"}.issubset(df_disp.columns):
             for _, row in df_disp.iterrows():
                 blocco_disp += f"- {row['Hotel']}: Famiglia: {row['Famiglia']}, Coppia: {row['Coppia']}\n"
 
-        # Costruzione blocco servizi
         blocco_servizi = ""
         if not df_servizi.empty and "Servizio" in df_servizi.columns:
             for s in df_servizi["Servizio"]:
