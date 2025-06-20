@@ -1,5 +1,5 @@
 fastapi
-python-telegram-bot
+python-telegram-bot[ext]
 groq
 httpx
 pandas
