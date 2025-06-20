@@ -1,11 +1,12 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-import telegram
 import os
 import httpx
 import pandas as pd
 import io
 from groq import Groq
+from telegram import Bot
+from telegram.request import AiohttpRequest
 
 # --- Config ---
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -14,8 +15,13 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 if not TELEGRAM_TOKEN or not GROQ_API_KEY:
     raise ValueError("TELEGRAM_BOT_TOKEN o GROQ_API_KEY mancante")
 
-bot = telegram.Bot(token=TELEGRAM_TOKEN)
+# Telegram Bot asincrono con pool aumentato
+request_con = AiohttpRequest(connect_timeout=10, read_timeout=10, pool_size=100)
+bot = Bot(token=TELEGRAM_TOKEN, request=request_con)
+
+# Groq client
 client = Groq(api_key=GROQ_API_KEY)
+
 app = FastAPI()
 
 # --- Link ai CSV ---
@@ -38,59 +44,55 @@ def carica_csv_pandas(url):
 async def webhook(request: Request):
     try:
         data = await request.json()
-        update = telegram.Update.de_json(data, bot)
+        chat_id = data['message']['chat']['id']
+        user_text = data['message']['text'].strip().lower()
 
-        if update.message and update.message.text:
-            chat_id = update.message.chat.id
-            user_text = update.message.text.strip().lower()
+        df_risposte = carica_csv_pandas(URL_RISPOSTE)
+        df_disp = carica_csv_pandas(URL_DISPONIBILITA)
+        df_servizi = carica_csv_pandas(URL_SERVIZI)
 
-            df_risposte = carica_csv_pandas(URL_RISPOSTE)
-            df_disp = carica_csv_pandas(URL_DISPONIBILITA)
-            df_servizi = carica_csv_pandas(URL_SERVIZI)
+        # Ricerca intent matching sulle risposte predefinite
+        risposta_match = None
+        if not df_risposte.empty and "Domanda" in df_risposte.columns:
+            for _, row in df_risposte.iterrows():
+                if row["Domanda"].strip().lower() in user_text:
+                    risposta_match = row["Risposta"]
+                    break
 
-            # Ricerca intent matching sulle risposte predefinite
-            risposta_match = None
-            if not df_risposte.empty and "Domanda" in df_risposte.columns:
-                for _, row in df_risposte.iterrows():
-                    if row["Domanda"].strip().lower() in user_text:
-                        risposta_match = row["Risposta"]
-                        break
+        # Costruzione blocco disponibilità
+        blocco_disp = ""
+        if not df_disp.empty and {"Hotel", "Famiglia", "Coppia"}.issubset(df_disp.columns):
+            for _, row in df_disp.iterrows():
+                blocco_disp += f"- {row['Hotel']}: Famiglia: {row['Famiglia']}, Coppia: {row['Coppia']}\n"
 
-            # Costruzione blocco disponibilità
-            blocco_disp = ""
-            if not df_disp.empty and {"Hotel", "Famiglia", "Coppia"}.issubset(df_disp.columns):
-                for _, row in df_disp.iterrows():
-                    blocco_disp += f"- {row['Hotel']}: Famiglia: {row['Famiglia']}, Coppia: {row['Coppia']}\n"
+        # Costruzione blocco servizi
+        blocco_servizi = ""
+        if not df_servizi.empty and "Servizio" in df_servizi.columns:
+            for s in df_servizi["Servizio"]:
+                blocco_servizi += f"- {s}\n"
 
-            # Costruzione blocco servizi
-            blocco_servizi = ""
-            if not df_servizi.empty and "Servizio" in df_servizi.columns:
-                for s in df_servizi["Servizio"]:
-                    blocco_servizi += f"- {s}\n"
+        system_prompt = {
+            "role": "system",
+            "content": (
+                "Sei un assistente AI per Devira Hotels.\n"
+                "📅 Disponibilità attuale:\n"
+                f"{blocco_disp}\n"
+                "🛎️ Servizi attivi oggi:\n"
+                f"{blocco_servizi}\n"
+                "Se non sai rispondere, invita a contattare un operatore umano."
+            )
+        }
 
-            # Prompt per Groq
-            system_prompt = {
-                "role": "system",
-                "content": (
-                    "Sei un assistente AI per Devira Hotels.\n"
-                    "📅 Disponibilità attuale:\n"
-                    f"{blocco_disp}\n"
-                    "🛎️ Servizi attivi oggi:\n"
-                    f"{blocco_servizi}\n"
-                    "Se non sai rispondere, invita cortesemente a contattare un operatore umano."
-                )
-            }
+        if risposta_match:
+            reply = risposta_match
+        else:
+            response = client.chat.completions.create(
+                model="llama3-70b-8192",
+                messages=[system_prompt, {"role": "user", "content": user_text}]
+            )
+            reply = response.choices[0].message.content.strip()
 
-            if risposta_match:
-                reply = risposta_match
-            else:
-                response = client.chat.completions.create(
-                    model="llama3-70b-8192",
-                    messages=[system_prompt, {"role": "user", "content": user_text}]
-                )
-                reply = response.choices[0].message.content.strip()
-
-            await bot.send_message(chat_id=chat_id, text=reply)
+        await bot.send_message(chat_id=chat_id, text=reply)
 
         return JSONResponse(content={"status": "ok"})
 
