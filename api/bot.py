@@ -90,7 +90,7 @@ async def webhook(request: Request):
                 )
                 reply = response.choices[0].message.content.strip()
 
-            bot.send_message(chat_id=chat_id, text=reply)
+            await bot.send_message(chat_id=chat_id, text=reply)
 
         return JSONResponse(content={"status": "ok"})
 
